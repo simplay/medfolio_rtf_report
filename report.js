@@ -45,8 +45,11 @@ function Report() {
 //
 //  @param width [Integer] defines the with of every cell. RTF uses twip units.
 //    15 twips = 1 pixel
+//  @param startsNewPage [Boolean, optional] defines whether the table should start a new page
+//    default is false
 function Table(width) {
   this.width = width;
+  this.startNewPage = arguments.length > 1 ? arguments[1] : false;
 
   // collection of row instances
   this.rows = [];
@@ -76,7 +79,9 @@ function Table(width) {
     rtf += "\\pard\\nowidctlpar\\par";
 
     // ensures that the following parsed rtf code being rendered on a new page.
-    rtf += "\\page";
+    if (this.startNewPage) {
+      rtf += "\\page";
+    }
     return rtf;
   };
 
@@ -111,16 +116,32 @@ function SimpleRow(cells, width) {
     } 
     return true;
   };
+  
+  // get the amount of fixed width cells and their combined width
+  this.getFixedCellInfo = function() {
+    var result = {width: 0, num: 0};
+    for(var idx = 0; idx < this.cells.length; idx++) {
+      if(this.cells[idx].width > 0) {
+        result.width += this.cells[idx].width;
+        result.num++;
+      }
+    }
+    return result;
+  }
 
   // Generate the rtf that generates a simple row.
   this.toRtf = function() {
 
     var cellCount = this.cells.length;
-    var offset = parseInt(this.width / cellCount);
+    var fixedCellInfo = this.getFixedCellInfo();
+    var fixedWidth = fixedCellInfo.width;
+    var varWidth = this.width - fixedWidth;
+    var varOffset = parseInt(varWidth / (cellCount - fixedCellInfo.num));
     var rtf = "";
+    var startPos = 0;
 
     for (var idx = 0; idx < cellCount; idx++) {
-      var startPos = offset * (idx + 1);
+      startPos += this.cells[idx].width > 0 ? this.cells[idx].width : varOffset;
       rtf += "\\cellx" + startPos;
     }
     rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs22";
@@ -153,16 +174,33 @@ function NestedRow(cells, width) {
   var isOfTypeArray = function(element) {
     return Object.prototype.toString.call(element) === '[object Array]';
   };
+  
+  // get the amount of fixed width cells and their combined width
+  this.getFixedCellInfo = function() {
+    var result = {width: 0, num: 0};
+    for(var idx = 0; idx < this.cells.length; idx++) {
+      if(this.cells[idx].width > 0) {
+        result.width += this.cells[idx].width;
+        result.num++;
+      }
+    }
+    return result;
+  }
 
   this.toRtf = function() {
     var cellCount = this.cells.length;
-    var offset = parseInt(this.width / cellCount);
+    var fixedCellInfo = this.getFixedCellInfo();
+    var fixedWidth = fixedCellInfo.width;
+    var varWidth = this.width - fixedWidth;
+    var varOffset = parseInt(varWidth / (cellCount - fixedCellInfo.num));
     var rtf = "";
+    var startPos = 0;
 
     for (var idx = 0; idx < cellCount; idx++) {
-      var startPos = offset * (idx + 1);
+      startPos += this.cells[idx].width > 0 ? this.cells[idx].width : varOffset;
       rtf += "\\cellx" + startPos;
     }
+    rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs22";
 
     var mayEnter = true;
     for (var idx = 0; idx < cellCount; idx++) {
@@ -184,7 +222,7 @@ function NestedRow(cells, width) {
           rtf += "\\pard\\intbl\\itap2\\nowidctlpar";
           rtf += " " + container[k];
           rtf += "\\nestcell{\\*\\nesttableprops\\trowd\\trgaph70\\trpaddl70\\trpaddr70\\trpaddfl3\\trpaddfr3";
-          rtf += "\\cellx" + offset + "\\nestrow}{\\nonesttables\\par}";
+          rtf += "\\cellx" + (cell.width > 0 ? cell.width : varOffset) + "\\nestrow}{\\nonesttables\\par}";
         }
       }
     }
@@ -195,8 +233,9 @@ function NestedRow(cells, width) {
     }
     rtf += "\\trowd\\trgaph70\\trleft-108";
 
+    startPos = 0;
     for (var idx = 0; idx < cellCount; idx++) {
-      var startPos = offset * (idx + 1);
+      startPos += this.cells[idx].width > 0 ? this.cells[idx].width : varOffset;
       rtf += "\\cellx" + startPos;
     }
     rtf += "\\row";
@@ -213,8 +252,12 @@ function NestedRow(cells, width) {
 // var bold_cell = new Cell("Heading").asBold();
 // var table = new Table(10000);
 // table.addSimple(bold_cell, cell);
+// @param content [String, Array<String>] content of cell, if nested structure, then pass an array of string
+// @param width [Integer, optional] set the cell to a specific width, the rest of the non fixed width cells on
+//        the same row will be distributed evenely across the leftover horizontal space
 function Cell(content) {
   this.content = content;
+  this.width = arguments.length > 1 ? arguments[1] : 0;
 
   // private member to overwrite the content of this cell
   this.setContent = function(content) {
@@ -240,6 +283,12 @@ function Cell(content) {
   // displays the conent of this cell in bold
   this.asBold = function() {
     this.setContent("\\b1 " + this.toRtf() + "\\b0");
+    return this;
+  };
+
+  // displays the conent of this cell with an underline
+  this.withUnderline = function() {
+    this.setContent("\\ul " + this.toRtf() + "\\ul0");
     return this;
   };
 
