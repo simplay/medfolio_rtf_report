@@ -156,8 +156,6 @@ function SimpleRow(cells, width, fontSize) {
     for (var idx = 0; idx < cellCount; idx++) {
       rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs" + this.fontSize + "\n";
       rtf += this.cells[idx].toRtf() + "\\cell";
-      if(this.cells[idx].fontSize !== null && this.cells[idx].fontSize != this.fontSize)
-        rtf += "\\fs" + this.fontSize + "\n";
     }
 
     rtf += "\\pard\\intbl\\row";
@@ -242,13 +240,11 @@ function NestedRow(cells, width, fontSize) {
           rtf += "\\cellx" + (cell.width > 0 ? cell.width : varOffset) + "\\nestrow}{\\nonesttables\\par}";
         }
       }
-      if(this.cells[idx].fontSize !== null && this.cells[idx].fontSize != this.fontSize)
-        rtf += "\\fs" + this.fontSize + "\n";
     }
 
     // case simple-nextes
     if (mayEnter) {
-      rtf += "\\pard\\intbl\\nowidctlpar\\cell";
+      rtf += "\\pard\\intbl\\nowidctlpar" + this.fontSize + "\n\\cell";
     }
     rtf += "\\trowd\\trgaph70\\trleft-108";
 
