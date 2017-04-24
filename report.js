@@ -45,11 +45,14 @@ function Report() {
 //
 //  @param width [Integer] defines the with of every cell. RTF uses twip units.
 //    15 twips = 1 pixel
+//  @param fontSize [Integer, optional] set the default font size to be used in this table
+//    default is 22 i.e. 11pt
 //  @param startsNewPage [Boolean, optional] defines whether the table should start a new page
 //    default is false
 function Table(width) {
   this.width = width;
-  this.startNewPage = arguments.length > 1 ? arguments[1] : false;
+  this.fontSize = arguments.length > 1 ? arguments[1] : 22;
+  this.startNewPage = arguments.length > 2 ? arguments[2] : false;
 
   // collection of row instances
   this.rows = [];
@@ -89,24 +92,25 @@ function Table(width) {
   //
   // @param cells [Array<Cell>] columns of row.
   this.addSimpleRow = function(cells) {
-    this.rows.push(new SimpleRow(cells, this.width));
+    this.rows.push(new SimpleRow(cells, this.width, this.fontSize));
   };
 
   // Appends a row of cell-lists and cells to this table.
   //
   // @param cells [Array<Array<Cell, String>>] columns of row.
   this.addNestedRow = function(cells) {
-    this.rows.push(new NestedRow(cells, this.width));
+    this.rows.push(new NestedRow(cells, this.width, this.fontSize));
   };
 };
 
 // A simple row consists of N not-nested cells.
 // This class is never directly used by the user.
-function SimpleRow(cells, width) {
+function SimpleRow(cells, width, fontSize) {
 
   // Collection of Cell instances
   this.cells = cells;
   this.width = width;
+  this.fontSize = fontSize;
 
   // is any cell null valued?
   this.isValid = function() {
@@ -141,27 +145,34 @@ function SimpleRow(cells, width) {
     var startPos = 0;
 
     for (var idx = 0; idx < cellCount; idx++) {
-      startPos += this.cells[idx].width > 0 ? this.cells[idx].width : varOffset;
+      var cell = this.cells[idx];
+      startPos += cell.width > 0 ? cell.width : varOffset;
+      rtf += cell.mergeTag;
+      rtf += cell.getRtfBorderFormat();
+      rtf += cell.valign;
       rtf += "\\cellx" + startPos;
     }
-    rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs22";
 
     for (var idx = 0; idx < cellCount; idx++) {
-      rtf += " " + this.cells[idx].toRtf() + "\\cell";
+      rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs" + this.fontSize + "\n";
+      rtf += this.cells[idx].toRtf() + "\\cell";
+      if(this.cells[idx].fontSize !== null && this.cells[idx].fontSize != this.fontSize)
+        rtf += "\\fs" + this.fontSize + " ";
     }
 
-    rtf += "\\row";
+    rtf += "\\pard\\intbl\\row";
     return rtf;
   }
 }
 
 // A nested row is able to display an inner table or a list of items.
 // This class is never directly used by the user.
-function NestedRow(cells, width) {
+function NestedRow(cells, width, fontSize) {
 
   // Collection of Cell instances
   this.cells = cells;
   this.width = width;
+  this.fontSize = fontSize;
 
   // is any cell null valued?
   this.isValid = function() {
@@ -197,17 +208,23 @@ function NestedRow(cells, width) {
     var startPos = 0;
 
     for (var idx = 0; idx < cellCount; idx++) {
-      startPos += this.cells[idx].width > 0 ? this.cells[idx].width : varOffset;
+      var cell = this.cells[idx];
+      startPos += cell.width > 0 ? cell.width : varOffset;
+      rtf += cell.mergeTag;
+      rtf += cell.getRtfBorderFormat();
+      rtf += cell.valign;
       rtf += "\\cellx" + startPos;
     }
-    rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs22";
+    // The newline ensures that if the text following the font size declaration
+    // starts with a number it won't be interpreted as part of the declaration
+    rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs" + this.fontSize + "\n";
 
     var mayEnter = true;
     for (var idx = 0; idx < cellCount; idx++) {
       var cell = this.cells[idx];
 
       if (!cell.containsArray()) {
-        rtf += "\\pard\\intbl\\nowidctlpar";
+        rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs" + this.fontSize + "\n";
 
         // guard
         if (idx == cellCount - 1) {
@@ -225,6 +242,8 @@ function NestedRow(cells, width) {
           rtf += "\\cellx" + (cell.width > 0 ? cell.width : varOffset) + "\\nestrow}{\\nonesttables\\par}";
         }
       }
+      if(this.cells[idx].fontSize !== null && this.cells[idx].fontSize != this.fontSize)
+        rtf += "\\fs" + this.fontSize + "\n";
     }
 
     // case simple-nextes
@@ -243,6 +262,32 @@ function NestedRow(cells, width) {
   };
 }
 
+// The BORDER_TYPE enum is used to specify cell border types
+// the available border types are severely restricted by the ancient RTF version
+// additionally the double and triple borders are double width and triple width
+// rather than actual double and triple borders, like they are in more recent versions
+var BORDER_TYPE = {
+  NONE  :  null,
+  SOLID : '\\brdrs',
+  DOUBLE: '\\brdrdb',
+  TRIPLE: '\\brdrtriple'
+};
+
+// The ALIGN enum is used to specify horizontal text alignment
+var ALIGN = {
+  LEFT   : '\\ql',
+  RIGHT  : '\\qr',
+  CENTER : '\\qc',
+  JUSTIFY: '\\qj'
+};
+
+// The VALIGN enum is used to specify vertical cell text alignment
+var VALIGN = {
+  TOP   : '', // default value so can be empty
+  CENTER : '\\clvertalc',
+  BOTTOM: '\\clvertalb'
+};
+
 // A Cell models a column within a certain table-row.
 // We add cells to a table by relying on the Table#addSimpleRow and Table#addNestedRow
 // members. The content of a cell is a string which may contain rtf codes.
@@ -255,9 +300,17 @@ function NestedRow(cells, width) {
 // @param content [String, Array<String>] content of cell, if nested structure, then pass an array of string
 // @param width [Integer, optional] set the cell to a specific width, the rest of the non fixed width cells on
 //        the same row will be distributed evenely across the leftover horizontal space
+// @param borderTop, borderLeft, borderBottom, borderRight [BORDER_TYPE, optional] set the corresponding border type.
 function Cell(content) {
   this.content = content;
-  this.width = arguments.length > 1 ? arguments[1] : 0;
+  this.width = arguments.length > 1 ? parseInt(arguments[1]) : 0;
+  this.borderTop = arguments.length > 2 ? arguments[2] : BORDER_TYPE.NONE;
+  this.borderLeft = arguments.length > 3 ? arguments[3] : BORDER_TYPE.NONE;
+  this.borderBottom = arguments.length > 4 ? arguments[4] : BORDER_TYPE.NONE;
+  this.borderRight = arguments.length > 5 ? arguments[5] : BORDER_TYPE.NONE;
+  this.fontSize = null;
+  this.mergeTag = "";
+  this.valign = VALIGN.TOP;
 
   // private member to overwrite the content of this cell
   this.setContent = function(content) {
@@ -280,15 +333,39 @@ function Cell(content) {
     return Object.prototype.toString.call(this.content) === '[object Array]';
   };
 
+  // set the font to the given size in half points
+  this.setFontSize = function(size) {
+    this.fontSize = size;
+    this.setContent("\\fs" + size + "\n" + this.toRtf());
+    return this;
+  }
+
+  // set alignment of text inside the cell
+  // param align [ALIGN] horizontal alignment
+  // param valign [VALIGN, optional] vertical alignment
+  this.setAlignment = function(align) {
+    this.setContent(align + "\n" + this.toRtf());
+    if(arguments.length>1)
+      this.valign = arguments[1];
+    return this;
+  }
+
+  // should the cell be merged with another cell
+  // @param firstCell [Boolean] is this the first cell in a set of cells that should be merged?
+  this.mergeCell = function(firstCell) {
+    this.mergeTag = firstCell ? "\\clvmgf" : "\\clvmrg";
+    return this;
+  }
+
   // displays the conent of this cell in bold
   this.asBold = function() {
-    this.setContent("\\b1 " + this.toRtf() + "\\b0");
+    this.setContent("\\b1\n" + this.toRtf() + "\\b0");
     return this;
   };
 
   // displays the conent of this cell with an underline
   this.withUnderline = function() {
-    this.setContent("\\ul " + this.toRtf() + "\\ul0");
+    this.setContent("\\ul\n" + this.toRtf() + "\\ul0");
     return this;
   };
 
@@ -296,6 +373,99 @@ function Cell(content) {
   this.withUnit = function(unit) {
     this.setContent(this.toRtf() + unit);
     return this;
+  };
+
+  // set all four sides of the cell to specific types
+  // similarly to css properties you can specify between 1 and 4 values
+  //
+  // The following calls are possible:
+  // 4 values: withBorder(top, left, bottom, right)
+  // 3 values: withBorder(top, leftRight, bottom)
+  // 2 values: withBorder(topBottom, leftRight)
+  // 1 value:  withBorder(topLeftBottomRight)
+  this.withBorder = function(type) {
+    switch(arguments.length) {
+      // failing silently is probably fine
+      case 0:
+        break;
+
+      // if we only get one argument we want to set all sides to the specifc type
+      case 1:
+        this.borderTop = type;
+        this.borderLeft = type;
+        this.borderBottom = type;
+        this.borderRight = type;
+        break;
+
+      // with two arguments the first specifies top and bottom and the second specifies left and right
+      case 2:
+        this.borderTop = type;
+        this.borderLeft = arguments[1];
+        this.borderBottom = type;
+        this.borderRight = arguments[1];
+        break;
+
+      // with three arguments, the first specifies top, the second left and right and the third bottom
+      case 3:
+        this.borderTop = type;
+        this.borderLeft = arguments[1];
+        this.borderBottom = arguments[2];
+        this.borderRight = arguments[1];
+        break;
+
+      // with four arguments each specfies a side like with the constructor
+      // additional arguments will be ignored
+      case 4:
+      default:
+        this.borderTop = type;
+        this.borderLeft = arguments[1];
+        this.borderBottom = arguments[2];
+        this.borderRight = arguments[3];
+        break;
+    }
+    return this;
+  };
+
+  // set the top border type
+  this.withBorderTop = function(type) {
+    this.borderTop = type;
+    return this;
+  }
+
+  // set the left border type
+  this.withBorderLeft = function(type) {
+    this.borderLeft = type;
+    return this;
+  }
+
+  // set the bottom border type
+  this.withBorderBottom = function(type) {
+    this.borderBottom = type;
+    return this;
+  }
+
+  // set the right border type
+  this.withBorderRight = function(type) {
+    this.borderRight = type;
+    return this;
+  }
+
+  // generate a rtf border formatting string based on the cell properties
+  this.getRtfBorderFormat = function() {
+    var rtf = '';
+    if(this.borderTop != BORDER_TYPE.NONE) {
+      rtf += '\\clbrdrt' + this.borderTop;
+    }
+    if(this.borderLeft != BORDER_TYPE.NONE) {
+      rtf += '\\clbrdrl' + this.borderLeft;
+    }
+    if(this.borderBottom != BORDER_TYPE.NONE) {
+      rtf += '\\clbrdrb' + this.borderBottom;
+    }
+    if(this.borderRight != BORDER_TYPE.NONE) {
+      rtf += '\\clbrdrr' + this.borderRight;
+    }
+    return rtf;
   };
 
   // Generate corresponding rtf of this cell
@@ -310,7 +480,7 @@ function Cell(content) {
 // @example: A row with four columns, where the first three are empty.
 //  table.addSimpleRow(Cell.blank(), Cell.blank(), Cell.blank(), new Cell("4th column"))
 Cell.blank = function() {
-  return new Cell("");
+  return new Cell("", arguments.length > 0 ? arguments[0] : 0);
 };
 
 // Generate the rtf to from a bullet point list of a given collection of items.
