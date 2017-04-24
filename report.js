@@ -157,7 +157,7 @@ function SimpleRow(cells, width, fontSize) {
       rtf += "\\pard\\intbl\\nowidctlpar\\f1\\fs" + this.fontSize + "\n";
       rtf += this.cells[idx].toRtf() + "\\cell";
       if(this.cells[idx].fontSize !== null && this.cells[idx].fontSize != this.fontSize)
-        rtf += "\\fs" + this.fontSize + " ";
+        rtf += "\\fs" + this.fontSize + "\n";
     }
 
     rtf += "\\pard\\intbl\\row";
@@ -479,6 +479,7 @@ function Cell(content) {
 //
 // @example: A row with four columns, where the first three are empty.
 //  table.addSimpleRow(Cell.blank(), Cell.blank(), Cell.blank(), new Cell("4th column"))
+// @param width [Integer, optional] the width of the blank cell
 Cell.blank = function() {
   return new Cell("", arguments.length > 0 ? arguments[0] : 0);
 };
